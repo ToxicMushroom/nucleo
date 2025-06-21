@@ -212,7 +212,7 @@ impl<T: Sync + Send + 'static> Worker<T> {
                     // safety: in-flight items are never added to the matches
                     let item = self.items.get_unchecked(match_.idx);
                     if let Some(score) = pattern.score(item.matcher_columns, matchers.get()) {
-                        match_.score = score;
+                        match_.score = (self.score_tail)(score, item.data);
                     } else {
                         unmatched.fetch_add(1, atomic::Ordering::Relaxed);
                         match_.score = 0;
