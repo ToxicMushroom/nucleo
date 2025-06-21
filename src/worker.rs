@@ -23,6 +23,7 @@ impl Matchers {
 
 unsafe impl Sync for Matchers {}
 unsafe impl Send for Matchers {}
+pub(crate) type ScoreTail<T> = Arc<(dyn Fn(u32, &T) -> u32 + Send + Sync)>;
 
 pub(crate) struct Worker<T: Sync + Send + 'static> {
     pub(crate) running: bool,
@@ -31,6 +32,7 @@ pub(crate) struct Worker<T: Sync + Send + 'static> {
     pub(crate) pattern: MultiPattern,
     pub(crate) sort_results: bool,
     pub(crate) reverse_items: bool,
+    pub(crate) score_tail: ScoreTail<T>,
     pub(crate) canceled: Arc<AtomicBool>,
     pub(crate) should_notify: Arc<AtomicBool>,
     pub(crate) was_canceled: bool,
@@ -59,6 +61,7 @@ impl<T: Sync + Send + 'static> Worker<T> {
     pub(crate) fn new(
         worker_threads: Option<usize>,
         config: Config,
+        score_tail: ScoreTail<T>,
         notify: Arc<(dyn Fn() + Sync + Send)>,
         cols: u32,
     ) -> (ThreadPool, Self) {
@@ -77,6 +80,7 @@ impl<T: Sync + Send + 'static> Worker<T> {
             matchers: Matchers(matchers),
             last_snapshot: 0,
             matches: Vec::new(),
+            score_tail,
             // just a placeholder
             pattern: MultiPattern::new(cols as usize),
             sort_results: true,
@@ -99,7 +103,8 @@ impl<T: Sync + Send + 'static> Worker<T> {
             let Some(item) = self.items.get(idx) else {
                 return true;
             };
-            if let Some(score) = pattern.score(item.matcher_columns, matchers.get()) {
+            if let Some(mut score) = pattern.score(item.matcher_columns, matchers.get()) {
+                score = (self.score_tail)(score, item.data);
                 self.matches.push(Match { score, idx });
             };
             false
@@ -120,13 +125,14 @@ impl<T: Sync + Send + 'static> Worker<T> {
                 if self.canceled.load(atomic::Ordering::Relaxed) {
                     return Match { score: 0, idx };
                 }
-                let Some(score) = pattern.score(item.matcher_columns, matchers.get()) else {
+                let Some(mut score) = pattern.score(item.matcher_columns, matchers.get()) else {
                     unmatched.fetch_add(1, atomic::Ordering::Relaxed);
                     return Match {
                         score: 0,
                         idx: u32::MAX,
                     };
                 };
+                score = (self.score_tail)(score, item.data);
                 Match { score, idx }
             });
             self.matches.par_extend(items);

@@ -6,7 +6,13 @@ use crate::Nucleo;
 
 #[test]
 fn active_injector_count() {
-    let mut nucleo: Nucleo<()> = Nucleo::new(Config::DEFAULT, Arc::new(|| ()), Some(1), 1);
+    let mut nucleo: Nucleo<()> = Nucleo::new(
+        Config::DEFAULT,
+        Arc::new(|a, b| a),
+        Arc::new(|| ()),
+        Some(1),
+        1,
+    );
     assert_eq!(nucleo.active_injectors(), 0);
     let injector = nucleo.injector();
     assert_eq!(nucleo.active_injectors(), 1);

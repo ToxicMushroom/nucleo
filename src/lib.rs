@@ -308,11 +308,12 @@ impl<T: Sync + Send + 'static> Nucleo<T> {
     /// number of columns cannot be changed after construction.
     pub fn new(
         config: Config,
+        score_tail: crate::worker::ScoreTail<T>,
         notify: Arc<(dyn Fn() + Sync + Send)>,
         num_threads: Option<usize>,
         columns: u32,
     ) -> Self {
-        let (pool, worker) = Worker::new(num_threads, config, notify.clone(), columns);
+        let (pool, worker) = Worker::new(num_threads, config, score_tail, notify.clone(), columns);
         Self {
             canceled: worker.canceled.clone(),
             should_notify: worker.should_notify.clone(),
