@@ -123,12 +123,12 @@ impl<T: Sync + Send + 'static> Worker<T> {
                     };
                 };
                 if self.canceled.load(atomic::Ordering::Relaxed) {
-                    return Match { score: 0, idx };
+                    return Match { score: (self.score_tail)(0, item.data), idx };
                 }
                 let Some(mut score) = pattern.score(item.matcher_columns, matchers.get()) else {
                     unmatched.fetch_add(1, atomic::Ordering::Relaxed);
                     return Match {
-                        score: 0,
+                        score: (self.score_tail)(0, item.data),
                         idx: u32::MAX,
                     };
                 };
@@ -157,11 +157,12 @@ impl<T: Sync + Send + 'static> Worker<T> {
         if new_snapshot.end() != self.last_snapshot {
             let end = new_snapshot.end();
             let items = new_snapshot.filter_map(|(idx, item)| {
-                if item.is_none() {
+                return if let Some(item) = item {
+                    Some(Match { score: (self.score_tail)(0, item.data), idx })
+                } else {
                     self.in_flight.push(idx);
-                    return None;
-                };
-                Some(Match { score: 0, idx })
+                    None
+                }
             });
             self.matches.extend(items);
             self.last_snapshot = end;
@@ -300,7 +301,10 @@ impl<T: Sync + Send + 'static> Worker<T> {
     fn reset_matches(&mut self) {
         self.matches.clear();
         self.matches
-            .extend((0..self.last_snapshot).map(|idx| Match { score: 0, idx }));
+            .extend((0..self.last_snapshot).map(|idx| unsafe {
+                let item =  self.items.get_unchecked(idx);
+                Match { score: (self.score_tail)(0, item.data), idx }
+            } ));
         // there are usually only very few in flight items (one for each writer)
         self.remove_in_flight_matches();
     }
